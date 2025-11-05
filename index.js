@@ -60,7 +60,18 @@ app.get("/notes", async (req, res) => {
   }
 });
 
-
+//get all folder
+app.get("/folders", async (req, res) => {
+  try {
+    
+    const notes = await folderCollection.find({}).toArray(); 
+    
+    res.status(200).json(notes);
+  } catch (error) {
+    console.error("Error fetching notes:", error);
+    res.status(500).json({ message: "Failed to fetch notes" });
+  }
+});
 
 // Start the server
 const PORT = process.env.PORT || 5000;
