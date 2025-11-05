@@ -28,11 +28,13 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
-    // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
+
+    const database = client.db("note-book");
+    notesCollection = database.collection("notes");
+    folderCollection = database.collection("folders");
   } finally {
     // Ensures that the client will close when you finish/error
     //await client.close();
@@ -44,6 +46,20 @@ run().catch(console.dir);
 app.get("/", (req, res) => {
   res.send("Notes API is running...");
 });
+
+//get all notes
+app.get("/notes", async (req, res) => {
+  try {
+    
+    const notes = await notesCollection.find({}).toArray(); 
+    
+    res.status(200).json(notes);
+  } catch (error) {
+    console.error("Error fetching notes:", error);
+    res.status(500).json({ message: "Failed to fetch notes" });
+  }
+});
+
 
 
 // Start the server
