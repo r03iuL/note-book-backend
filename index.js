@@ -1,58 +1,57 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb"); // ✅ Added ObjectId
 
 dotenv.config();
 
-
 const app = express();
 
-//middleware
+// middleware
 app.use(cors());
 app.use(express.json());
 
+const uri = process.env.MONGO_URI;
 
+if (!uri) {
+  console.error("❌ Missing MONGO_URI in .env file");
+  process.exit(1);
+}
 
-
-const uri =process.env.MONGO_URI;
-
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
+
+let notesCollection;
+let folderCollection;
 
 async function run() {
   try {
     await client.connect();
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
-
     const database = client.db("note-book");
     notesCollection = database.collection("notes");
     folderCollection = database.collection("folders");
-  } finally {
-    // Ensures that the client will close when you finish/error
-    //await client.close();
+
+    console.log("✅ Connected to MongoDB");
+
+  } catch (error) {
+    console.error("❌ MongoDB connection failed:", error);
   }
 }
 run().catch(console.dir);
-
 
 app.get("/", (req, res) => {
   res.send("Notes API is running...");
 });
 
-//get all notes
+// get all notes
 app.get("/notes", async (req, res) => {
   try {
-    
-    const notes = await notesCollection.find({}).toArray(); 
-    
+    const notes = await notesCollection.find({}).toArray();
     res.status(200).json(notes);
   } catch (error) {
     console.error("Error fetching notes:", error);
@@ -60,21 +59,35 @@ app.get("/notes", async (req, res) => {
   }
 });
 
-//get all folder
+// ✅ get note by id
+app.get("/notes/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const note = await notesCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!note) {
+      return res.status(404).json({ message: "Note not found" });
+    }
+
+    res.status(200).json(note);
+  } catch (error) {
+    console.error("Error fetching note by ID:", error);
+    res.status(400).json({ message: "Invalid note ID" });
+  }
+});
+
+// get all folders
 app.get("/folders", async (req, res) => {
   try {
-    
-    const notes = await folderCollection.find({}).toArray(); 
-    
-    res.status(200).json(notes);
+    const folders = await folderCollection.find({}).toArray();
+    res.status(200).json(folders);
   } catch (error) {
-    console.error("Error fetching notes:", error);
-    res.status(500).json({ message: "Failed to fetch notes" });
+    console.error("Error fetching folders:", error);
+    res.status(500).json({ message: "Failed to fetch folders" });
   }
 });
 
-// Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
