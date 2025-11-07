@@ -76,6 +76,19 @@ app.get("/notes/:id", async (req, res) => {
   }
 });
 
+//delete note by id 
+app.delete("/notes/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await notesCollection.deleteOne({ _id: new ObjectId(id) });
+
+    if (!result.deletedCount) return res.status(404).json({ message: "Note not found" });
+    res.json({ message: "Note deleted" });
+  } catch (error) {
+    console.error("Error deleting note:", error);
+    res.status(500).json({ message: "Failed to delete note" });
+  }
+});
 // get all folders
 app.get("/folders", async (req, res) => {
   try {
