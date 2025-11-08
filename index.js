@@ -102,6 +102,27 @@ app.delete("/notes/:id", async (req, res) => {
   }
 });
 
+//update notes route
+// update note by id
+app.put("/notes/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const update = req.body;
+    const result = await notesCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: update }
+    );
+
+    if (!result.matchedCount)
+      return res.status(404).json({ message: "Note not found" });
+
+    res.json({ message: "Note updated successfully" });
+  } catch (error) {
+    console.error("Error updating note:", error);
+    res.status(500).json({ message: "Failed to update note" });
+  }
+});
+
 // get all folders
 app.get("/folders", async (req, res) => {
   try {
