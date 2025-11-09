@@ -134,6 +134,18 @@ app.get("/folders", async (req, res) => {
   }
 });
 
+// add folder
+app.post("/folders", async (req, res) => {
+  try {
+    const folder = req.body;
+    const result = await folderCollection.insertOne(folder);
+    res.status(201).json(result);
+  } catch (error) {
+    console.error("Error creating folder:", error);
+    res.status(500).json({ message: "Failed to create folder" });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
