@@ -1,7 +1,8 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb"); // ✅ Added ObjectId
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
 
 dotenv.config();
 
@@ -11,8 +12,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const uri = process.env.MONGO_URI;
+// Firebase Admin SDK
+const serviceAccount = require("./firebase-service-account.json"); // Download from Firebase console
 
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+// MongoDB setup
+const uri = process.env.MONGO_URI;
 if (!uri) {
   console.error("❌ Missing MONGO_URI in .env file");
   process.exit(1);
@@ -43,14 +51,34 @@ async function run() {
 }
 run().catch(console.dir);
 
+// --- Firebase auth middleware ---
+async function authenticateFirebaseToken(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer "))
+    return res.status(401).json({ message: "Unauthorized" });
+
+  const idToken = authHeader.split(" ")[1];
+
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    req.user = decodedToken; // contains uid, email, etc.
+    next();
+  } catch (error) {
+    console.error("Firebase auth error:", error);
+    res.status(403).json({ message: "Invalid token" });
+  }
+}
+
+// --- Routes ---
+
 app.get("/", (req, res) => {
   res.send("Notes API is running...");
 });
 
-//add note
-app.post("/notes", async (req, res) => {
+// --- Notes Routes ---
+app.post("/notes", authenticateFirebaseToken, async (req, res) => {
   try {
-    const note = req.body;
+    const note = { ...req.body, userId: req.user.uid }; // attach Firebase UID
     const result = await notesCollection.insertOne(note);
     res.status(201).json(result);
   } catch (error) {
@@ -59,10 +87,9 @@ app.post("/notes", async (req, res) => {
   }
 });
 
-// get all notes
-app.get("/notes", async (req, res) => {
+app.get("/notes", authenticateFirebaseToken, async (req, res) => {
   try {
-    const notes = await notesCollection.find({}).toArray();
+    const notes = await notesCollection.find({ userId: req.user.uid }).toArray();
     res.status(200).json(notes);
   } catch (error) {
     console.error("Error fetching notes:", error);
@@ -70,15 +97,12 @@ app.get("/notes", async (req, res) => {
   }
 });
 
-// ✅ get note by id
-app.get("/notes/:id", async (req, res) => {
+app.get("/notes/:id", authenticateFirebaseToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const note = await notesCollection.findOne({ _id: new ObjectId(id) });
+    const note = await notesCollection.findOne({ _id: new ObjectId(id), userId: req.user.uid });
 
-    if (!note) {
-      return res.status(404).json({ message: "Note not found" });
-    }
+    if (!note) return res.status(404).json({ message: "Note not found" });
 
     res.status(200).json(note);
   } catch (error) {
@@ -87,34 +111,16 @@ app.get("/notes/:id", async (req, res) => {
   }
 });
 
-//delete note by id
-app.delete("/notes/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await notesCollection.deleteOne({ _id: new ObjectId(id) });
-
-    if (!result.deletedCount)
-      return res.status(404).json({ message: "Note not found" });
-    res.json({ message: "Note deleted" });
-  } catch (error) {
-    console.error("Error deleting note:", error);
-    res.status(500).json({ message: "Failed to delete note" });
-  }
-});
-
-//update notes route
-// update note by id
-app.put("/notes/:id", async (req, res) => {
+app.put("/notes/:id", authenticateFirebaseToken, async (req, res) => {
   try {
     const { id } = req.params;
     const update = req.body;
     const result = await notesCollection.updateOne(
-      { _id: new ObjectId(id) },
+      { _id: new ObjectId(id), userId: req.user.uid },
       { $set: update }
     );
 
-    if (!result.matchedCount)
-      return res.status(404).json({ message: "Note not found" });
+    if (!result.matchedCount) return res.status(404).json({ message: "Note not found" });
 
     res.json({ message: "Note updated successfully" });
   } catch (error) {
@@ -123,21 +129,24 @@ app.put("/notes/:id", async (req, res) => {
   }
 });
 
-// get all folders
-app.get("/folders", async (req, res) => {
+app.delete("/notes/:id", authenticateFirebaseToken, async (req, res) => {
   try {
-    const folders = await folderCollection.find({}).toArray();
-    res.status(200).json(folders);
+    const { id } = req.params;
+    const result = await notesCollection.deleteOne({ _id: new ObjectId(id), userId: req.user.uid });
+
+    if (!result.deletedCount) return res.status(404).json({ message: "Note not found" });
+
+    res.json({ message: "Note deleted" });
   } catch (error) {
-    console.error("Error fetching folders:", error);
-    res.status(500).json({ message: "Failed to fetch folders" });
+    console.error("Error deleting note:", error);
+    res.status(500).json({ message: "Failed to delete note" });
   }
 });
 
-// add folder
-app.post("/folders", async (req, res) => {
+// --- Folders Routes ---
+app.post("/folders", authenticateFirebaseToken, async (req, res) => {
   try {
-    const folder = req.body;
+    const folder = { ...req.body, userId: req.user.uid };
     const result = await folderCollection.insertOne(folder);
     res.status(201).json(result);
   } catch (error) {
@@ -146,6 +155,46 @@ app.post("/folders", async (req, res) => {
   }
 });
 
+app.get("/folders", authenticateFirebaseToken, async (req, res) => {
+  try {
+    const folders = await folderCollection.find({ userId: req.user.uid }).toArray();
+    res.status(200).json(folders);
+  } catch (error) {
+    console.error("Error fetching folders:", error);
+    res.status(500).json({ message: "Failed to fetch folders" });
+  }
+});
+
+// optional: get folder by ID
+app.get("/folders/:id", authenticateFirebaseToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const folder = await folderCollection.findOne({ _id: new ObjectId(id), userId: req.user.uid });
+
+    if (!folder) return res.status(404).json({ message: "Folder not found" });
+
+    res.status(200).json(folder);
+  } catch (error) {
+    console.error("Error fetching folder by ID:", error);
+    res.status(400).json({ message: "Invalid folder ID" });
+  }
+});
+
+app.delete("/folders/:id", authenticateFirebaseToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await folderCollection.deleteOne({ _id: new ObjectId(id), userId: req.user.uid });
+
+    if (!result.deletedCount) return res.status(404).json({ message: "Folder not found" });
+
+    res.json({ message: "Folder deleted" });
+  } catch (error) {
+    console.error("Error deleting folder:", error);
+    res.status(500).json({ message: "Failed to delete folder" });
+  }
+});
+
+// --- Start Server ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
